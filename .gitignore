@@ -2,6 +2,7 @@
 # https://github.com/github/gitignore/blob/main/community/Golang/Go.AllowList.gitignore
 #
 # Binaries for programs and plugins
+/ffmesh
 *.exe
 *.exe~
 *.dll
@@ -15,11 +16,30 @@
 *.out
 
 # Dependency directories (remove the comment below to include it)
-# vendor/
+/vendor/
+/Godeps/
 
-# Go workspace file
-go.work
-go.work.sum
+# IDE and editor files
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+
+# Operating system files
+.DS_Store
+Thumbs.db
+
+# Log files
+*.log
+
+# Temporary files
+/tmp/
+*.tmp
+
+# Go test cache
+/go.sum
 
 # env file
 .env
+.env.local

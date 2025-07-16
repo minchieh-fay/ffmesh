@@ -1,0 +1,36 @@
+# ffmesh 配置文件
+
+# 节点唯一标识符（类似16进制，10位左右）
+node_id: "a1b2c3d4e5"
+
+# 代理配置 - 本地TCP端口代理到远程节点
+proxies:
+  - local_port: 8080
+    target_node_id: "f6g7h8i9j0"
+    target_address: "192.168.1.100:3000"
+    name: "web-service"
+  
+  - local_port: 8081
+    target_node_id: "k1l2m3n4o5"
+    target_address: "10.0.0.50:5432"
+    name: "database"
+  
+  - local_port: 8082
+    target_node_id: "p6q7r8s9t0"
+    target_address: "172.16.0.10:6379"
+    name: "redis-cache"
+
+# QUIC配置
+quic:
+  # 本地QUIC监听端口
+  listen_port: 4242
+  
+  # 上级节点配置（可以有0-2个）
+  upstreams:
+    - node_id: "upstream01"
+      address: "192.168.1.1:4242"
+      name: "主节点"
+    
+    - node_id: "upstream02"
+      address: "192.168.1.2:4242"
+      name: "备用节点" 

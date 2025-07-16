@@ -1,0 +1,18 @@
+# ffmesh 配置文件 - 不启用QUIC监听
+
+# 节点唯一标识符
+node_id: "test123456"
+
+# 代理配置 - 本地TCP端口代理到远程节点
+proxies:
+  - local_port: 8080
+    target_node_id: "f6g7h8i9j0"
+    target_address: "192.168.1.100:3000"
+    name: "web-service"
+
+# QUIC配置 - 只有上级节点，没有监听端口
+quic:
+  upstreams:
+    - node_id: "upstream01"
+      address: "192.168.1.1:4242"
+      name: "主节点" 
