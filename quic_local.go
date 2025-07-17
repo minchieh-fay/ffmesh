@@ -16,13 +16,19 @@ func quic_local_main() {
 		fmt.Printf("⚠️  本地QUIC监听器未启用 (未配置监听端口)\n")
 		return
 	}
+
 	addr := fmt.Sprintf("0.0.0.0:%d", fm.config.Quic.ListenPort)
+	fmt.Printf("🚀 启动本地QUIC监听器: %s\n", addr)
+
 	listener, err := quic.ListenAddr(addr, GetServerTLSConfig(), GetQuicServerConfig())
 	if err != nil {
 		fmt.Printf("⚠️  启动QUIC监听器失败: %v\n", err)
 		os.Exit(1)
 		return
 	}
+
+	fmt.Printf("✅ QUIC监听器启动成功，等待连接...\n")
+
 	for {
 		conn, err := listener.Accept(context.Background())
 		if err != nil {
@@ -30,6 +36,10 @@ func quic_local_main() {
 			time.Sleep(1 * time.Second)
 			continue
 		}
+
+		remoteAddr := conn.RemoteAddr().String()
+		fmt.Printf("📡 新连接: %s\n", remoteAddr)
+
 		go handleQuicConnection(conn)
 	}
 }
@@ -38,14 +48,17 @@ func handleQuicConnection(conn quic.Connection) {
 	if conn == nil {
 		return
 	}
+
+	remoteAddr := conn.RemoteAddr().String()
+	errorcount := 0
+
 	for {
 		stream, err := conn.AcceptStream(context.Background())
-		errorcount := 0
 		if err != nil {
-			fmt.Printf("⚠️  接受流失败: %v\n", err)
+			fmt.Printf("⚠️  接受流失败 [%s]: %v\n", remoteAddr, err)
 			errorcount++
 			if errorcount > 5 {
-				fmt.Printf("⚠️  接受流失败次数过多，退出\n")
+				fmt.Printf("⚠️  接受流失败次数过多，关闭连接 [%s]\n", remoteAddr)
 				// 删除这个连接
 				conn.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "accept stream error")
 				delete_quic_client(conn)
@@ -54,6 +67,7 @@ func handleQuicConnection(conn quic.Connection) {
 			continue
 		}
 		errorcount = 0
+		fmt.Printf("📦 新流 [%s]\n", remoteAddr)
 		go handleQuicStream(conn, stream)
 	}
 }
@@ -87,6 +101,8 @@ func handleQuicStream_msg(msgsyn *QuicMessage, conn quic.Connection, stream quic
 	synmsg := msgsyn.Data.(*SynMsgMessage)
 	remote_node_id := synmsg.NodeID
 
+	fmt.Printf("🤝 建立消息通道: %s\n", remote_node_id)
+
 	// 如果id+conn 发生了改变，删除原有conn
 	delete_quic_client_when_conn_change(remote_node_id, conn)
 
@@ -99,6 +115,7 @@ func handleQuicStream_msg(msgsyn *QuicMessage, conn quic.Connection, stream quic
 
 	defer func() {
 		// msg通道关闭  等价于 conn关闭
+		fmt.Printf("🔌 消息通道关闭: %s\n", remote_node_id)
 		stream.Close()
 		conn.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "already connected")
 		delete_quic_client(conn)
@@ -129,9 +146,11 @@ func handleQuicStream_data(msgsyn *QuicMessage, conn quic.Connection, stream qui
 	remote_node_id := synmsg.NodeID
 	target_tcp_addr := synmsg.TargetTcpAddr
 
+	fmt.Printf("📊 数据通道请求: %s -> %s (%s)\n", remote_node_id, target_id, target_tcp_addr)
+
 	// 应该先去看看targetid是不是自己，或者能不能在client列表中找到
 	if target_id == fm.config.NodeID {
-		fmt.Printf("⚠️  数据通道：目标节点是自己: %s\n", target_id)
+		fmt.Printf("🎯 数据通道：目标节点是自己: %s\n", target_id)
 		handleQuicStream_data_target_self(remote_node_id, stream, target_tcp_addr)
 		return
 	}
@@ -141,6 +160,8 @@ func handleQuicStream_data(msgsyn *QuicMessage, conn quic.Connection, stream qui
 
 func handleQuicStream_data_target_self(remote_node_id string, stream quic.Stream, tcptarget string) {
 	defer stream.Close()
+
+	fmt.Printf("🔗 连接本地TCP目标: %s\n", tcptarget)
 	tcpconn, err := net.Dial("tcp", tcptarget)
 	if err != nil {
 		fmt.Printf("⚠️  连接目标地址失败: %v\n", err)
@@ -152,6 +173,8 @@ func handleQuicStream_data_target_self(remote_node_id string, stream quic.Stream
 	msgsynack := NewQuicMessage(MSG_TYPE_SYN_ACK_DATA, remote_node_id, SynAckMsgMessage{})
 	stream.Write(msgsynack.ToBuffer())
 
+	fmt.Printf("✅ 开始数据转发: %s <-> %s\n", remote_node_id, tcptarget)
+
 	ch := make(chan struct{}, 1)
 	go func() {
 		io.Copy(tcpconn, stream)
@@ -162,10 +185,13 @@ func handleQuicStream_data_target_self(remote_node_id string, stream quic.Stream
 		ch <- struct{}{}
 	}()
 	<-ch
+
+	fmt.Printf("🔌 数据转发结束: %s <-> %s\n", remote_node_id, tcptarget)
 }
 
 func handleQuicStream_data_target_other(src_node_id string, srcstream quic.Stream, target_id string, target_tcp_addr string) {
 	defer srcstream.Close()
+
 	// 查找我有木有目标节点信息，决定我是否可以帮源请求转发
 	dstclient, ok := fm.quic_client[target_id]
 	if !ok {
@@ -180,6 +206,7 @@ func handleQuicStream_data_target_other(src_node_id string, srcstream quic.Strea
 		fmt.Printf("⚠️  数据通道：目标节点连接不存在: %s\n", target_id)
 		return
 	}
+
 	// 创建dststream
 	dststream, err := dstclient.conn.OpenStreamSync(context.Background())
 	if err != nil {
@@ -211,6 +238,8 @@ func handleQuicStream_data_target_other(src_node_id string, srcstream quic.Strea
 	msgsynack_src := NewQuicMessage(MSG_TYPE_SYN_ACK_DATA, src_node_id, SynAckMsgMessage{})
 	srcstream.Write(msgsynack_src.ToBuffer())
 
+	fmt.Printf("✅ 开始中继数据转发: %s -> %s -> %s\n", src_node_id, target_id, target_tcp_addr)
+
 	// 进行数据拷贝
 	ch := make(chan struct{}, 1)
 	go func() {
@@ -222,4 +251,6 @@ func handleQuicStream_data_target_other(src_node_id string, srcstream quic.Strea
 		ch <- struct{}{}
 	}()
 	<-ch
+
+	fmt.Printf("🔌 中继数据转发结束: %s -> %s -> %s\n", src_node_id, target_id, target_tcp_addr)
 }

@@ -44,7 +44,7 @@ func main() {
 		fmt.Printf("📡 连接上级节点:\n")
 		for _, upstream := range config.Quic.Upstreams {
 			fmt.Printf("   - %s (%s) -> %s\n", upstream.Name, upstream.NodeID, upstream.Address)
-			// TODO: 实际连接上级节点
+			// 启动连接上级节点的goroutine
 			go quic_connect_upstream(upstream.NodeID, upstream.Address)
 		}
 	} else {
@@ -57,7 +57,7 @@ func main() {
 		for _, proxy := range config.Proxies {
 			fmt.Printf("   - %s: 本地端口 %d -> 节点 %s (%s)\n",
 				proxy.Name, proxy.LocalPort, proxy.TargetNodeID, proxy.TargetAddress)
-			// TODO: 实际启动代理监听器
+			// 启动TCP代理监听器
 			go tcp_proxy_main(proxy.LocalPort, proxy.TargetNodeID, proxy.TargetAddress)
 		}
 	} else {
@@ -65,5 +65,7 @@ func main() {
 	}
 
 	fmt.Printf("\n🚀 FFMesh 节点启动完成\n")
+
+	// 保持主程序运行
 	select {}
 }

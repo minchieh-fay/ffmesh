@@ -12,18 +12,26 @@ import (
 func quic_connect_upstream(node_id string, address string) {
 	for {
 		quic_connect_upstream_do(node_id, address)
-		fmt.Printf("连接上级节点失败，1秒后重试: %s\n", address)
+		fmt.Printf("连接上级节点失败，3秒后重试: %s\n", address)
 		time.Sleep(time.Second * 3)
 	}
 }
 
 func quic_connect_upstream_do(remote_node_id string, address string) {
-	conn, err := quic.DialAddr(context.Background(), address, GetClientTLSConfig(), GetQuicClientConfig())
+	fmt.Printf("尝试连接: %s\n", address)
+
+	// 创建连接上下文，设置超时
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
+
+	conn, err := quic.DialAddr(ctx, address, GetClientTLSConfig(), GetQuicClientConfig())
 	if err != nil {
 		fmt.Printf("连接上级节点失败: %v\n", err)
 		return
 	}
 	defer delete_quic_client_by_id(remote_node_id)
+
+	fmt.Printf("✅ 成功连接到上级节点: %s\n", address)
 
 	// 建立消息通道
 	stream, err := conn.OpenStreamSync(context.Background())
@@ -63,9 +71,9 @@ func quic_connect_upstream_do(remote_node_id string, address string) {
 }
 
 func handleQuicConnection_remote(conn quic.Connection) {
+	errorcount := 0
 	for {
 		stream, err := conn.AcceptStream(context.Background())
-		errorcount := 0
 		if err != nil {
 			fmt.Printf("⚠️  接受流失败: %v\n", err)
 			errorcount++
