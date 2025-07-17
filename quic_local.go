@@ -122,22 +122,23 @@ func handleQuicStream_msg(msgsyn *QuicMessage, conn quic.Connection, stream quic
 	}()
 
 	// 处理消息
-	go func() {
-		for {
-			msg := QuicMessageFromStream(stream)
-			if msg == nil {
-				fmt.Printf("⚠️  消息通道收到空消息\n")
-				return
-			}
-			if msg.Type == MSG_TYPE_PING {
-				// 创建一个pong消息
-				msgpong := NewQuicMessage(MSG_TYPE_PONG, remote_node_id, PongMessage{})
-				stream.Write(msgpong.ToBuffer())
-			} else {
-				fmt.Printf("⚠️  消息通道收到未知消息: %v\n", msg)
-			}
+	for {
+		msg := QuicMessageFromStream(stream)
+		if msg == nil {
+			fmt.Printf("⚠️  消息通道收到空消息\n")
+			return
 		}
-	}()
+		switch msg.Type {
+		case MSG_TYPE_PING:
+			// 创建一个pong消息
+			msgpong := NewQuicMessage(MSG_TYPE_PONG, remote_node_id, PongMessage{})
+			stream.Write(msgpong.ToBuffer())
+		case MSG_TYPE_PONG:
+			fmt.Printf("🔔 收到来自%s的pong消息\n", remote_node_id)
+		default:
+			fmt.Printf("⚠️  消息通道收到未知消息: %v\n", msg)
+		}
+	}
 }
 
 func handleQuicStream_data(msgsyn *QuicMessage, conn quic.Connection, stream quic.Stream) {

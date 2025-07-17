@@ -8,9 +8,16 @@ import (
 	"crypto/x509/pkix"
 	"math/big"
 	"net"
+	"sync"
 	"time"
 
 	"github.com/quic-go/quic-go"
+)
+
+// 全局TLS配置缓存
+var (
+	tlsConfigOnce sync.Once
+	tlsConfig     *tls.Config
 )
 
 // 生成自签名TLS证书
@@ -36,8 +43,13 @@ func generateTLSConfig() *tls.Config {
 		NotAfter:    time.Now().Add(100 * 365 * 24 * time.Hour), // 100年有效期
 		KeyUsage:    x509.KeyUsageKeyEncipherment | x509.KeyUsageDigitalSignature,
 		ExtKeyUsage: []x509.ExtKeyUsage{x509.ExtKeyUsageServerAuth},
-		IPAddresses: []net.IP{net.IPv4(127, 0, 0, 1), net.IPv6loopback},
-		DNSNames:    []string{"localhost"},
+		IPAddresses: []net.IP{
+			net.IPv4(127, 0, 0, 1),
+			net.IPv4(0, 0, 0, 0),
+			net.IPv6loopback,
+			net.IPv6unspecified,
+		},
+		DNSNames: []string{"localhost", "*"},
 	}
 
 	// 创建证书
@@ -58,10 +70,10 @@ func generateTLSConfig() *tls.Config {
 // 获取QUIC服务端配置
 func GetQuicServerConfig() *quic.Config {
 	return &quic.Config{
-		// 握手超时时间 - 30秒
+		// 握手超时时间
 		HandshakeIdleTimeout: 30 * time.Second,
 
-		// 连接空闲超时时间 - 5分钟
+		// 连接空闲超时时间
 		MaxIdleTimeout: 5 * time.Minute,
 
 		// 最大传入流数量
@@ -78,32 +90,35 @@ func GetQuicServerConfig() *quic.Config {
 
 		// 保持连接活跃
 		KeepAlivePeriod: 30 * time.Second,
+
+		// 允许0-RTT
+		Allow0RTT: true,
 	}
 }
 
 // 获取QUIC客户端配置
 func GetQuicClientConfig() *quic.Config {
 	return &quic.Config{
-		// 握手超时时间 - 30秒
+		// 握手超时时间
 		HandshakeIdleTimeout: 30 * time.Second,
 
-		// 连接空闲超时时间 - 5分钟
+		// 连接空闲超时时间
 		MaxIdleTimeout: 5 * time.Minute,
 
-		// 最大传出流数量
-		MaxIncomingStreams: 1000,
+		// 最大传入流数量
+		MaxIncomingStreams: 5,
 
-		// 最大传出单向流数量
-		MaxIncomingUniStreams: 1000,
-
-		// 启用数据报
-		EnableDatagrams: true,
+		// 最大传入单向流数量
+		MaxIncomingUniStreams: 5,
 
 		// 允许连接迁移
 		DisablePathMTUDiscovery: false,
 
 		// 保持连接活跃
 		KeepAlivePeriod: 30 * time.Second,
+
+		// 允许0-RTT
+		Allow0RTT: true,
 	}
 }
 
@@ -115,13 +130,13 @@ func GetClientTLSConfig() *tls.Config {
 
 		// 应用层协议协商
 		NextProtos: []string{"ffmesh-quic"},
-
-		// 服务器名称（可选）
-		ServerName: "localhost",
 	}
 }
 
 // 获取服务端TLS配置
 func GetServerTLSConfig() *tls.Config {
-	return generateTLSConfig()
+	tlsConfigOnce.Do(func() {
+		tlsConfig = generateTLSConfig()
+	})
+	return tlsConfig
 }

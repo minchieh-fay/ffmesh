@@ -3,7 +3,6 @@ package main
 import (
 	"context"
 	"fmt"
-	"os"
 	"time"
 
 	"github.com/quic-go/quic-go"
@@ -20,16 +19,19 @@ func quic_connect_upstream(node_id string, address string) {
 func quic_connect_upstream_do(remote_node_id string, address string) {
 	fmt.Printf("尝试连接: %s\n", address)
 
-	// 创建连接上下文，设置超时
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	// 创建连接上下文，设置更长的超时时间
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
 
+	// 尝试连接
+	fmt.Printf("开始QUIC连接...\n")
 	conn, err := quic.DialAddr(ctx, address, GetClientTLSConfig(), GetQuicClientConfig())
 	if err != nil {
 		fmt.Printf("连接上级节点失败: %v\n", err)
 		return
 	}
 	defer delete_quic_client_by_id(remote_node_id)
+	defer conn.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "连接关闭")
 
 	fmt.Printf("✅ 成功连接到上级节点: %s\n", address)
 
@@ -41,9 +43,8 @@ func quic_connect_upstream_do(remote_node_id string, address string) {
 	}
 	quic_send_syn_msg(stream, remote_node_id)
 
-	if verify_syn_ack(stream, MSG_TYPE_SYN_ACK_MSG) == false {
+	if !verify_syn_ack(stream, MSG_TYPE_SYN_ACK_MSG) {
 		fmt.Printf("⚠️  消息通道: 没有收到synack\n")
-		os.Exit(1)
 		return
 	}
 

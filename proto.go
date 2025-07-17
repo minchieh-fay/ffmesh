@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/binary"
 	"encoding/json"
+	"fmt"
 
 	"github.com/quic-go/quic-go"
 )
@@ -60,16 +61,54 @@ func QuicMessageFromStream(stream quic.Stream) *QuicMessage {
 	buf = make([]byte, len)
 	_, err = stream.Read(buf)
 	if err != nil {
+		fmt.Printf("读取消息长度失败: %v\n", err)
 		return nil
 	}
 	var msg QuicMessage
 	err = json.Unmarshal(buf, &msg)
 	if err != nil {
+		fmt.Printf("解析消息失败: %v\n", err)
 		return nil
 	}
 	if msg.NodeId != fm.config.NodeID {
+		fmt.Printf("节点ID不匹配，丢弃消息: %s\n", msg.NodeId)
 		return nil
 	}
+
+	// 根据消息类型反序列化Data字段
+	switch msg.Type {
+	case MSG_TYPE_SYN_MSG:
+		var synMsg SynMsgMessage
+		dataBytes, _ := json.Marshal(msg.Data)
+		json.Unmarshal(dataBytes, &synMsg)
+		msg.Data = &synMsg
+	case MSG_TYPE_SYN_DATA:
+		var synData SynDataMessage
+		dataBytes, _ := json.Marshal(msg.Data)
+		json.Unmarshal(dataBytes, &synData)
+		msg.Data = &synData
+	case MSG_TYPE_SYN_ACK_MSG:
+		var synAckMsg SynAckMsgMessage
+		dataBytes, _ := json.Marshal(msg.Data)
+		json.Unmarshal(dataBytes, &synAckMsg)
+		msg.Data = &synAckMsg
+	case MSG_TYPE_SYN_ACK_DATA:
+		var synAckData SynAckDataMessage
+		dataBytes, _ := json.Marshal(msg.Data)
+		json.Unmarshal(dataBytes, &synAckData)
+		msg.Data = &synAckData
+	case MSG_TYPE_PING:
+		var pingMsg PingMessage
+		dataBytes, _ := json.Marshal(msg.Data)
+		json.Unmarshal(dataBytes, &pingMsg)
+		msg.Data = &pingMsg
+	case MSG_TYPE_PONG:
+		var pongMsg PongMessage
+		dataBytes, _ := json.Marshal(msg.Data)
+		json.Unmarshal(dataBytes, &pongMsg)
+		msg.Data = &pongMsg
+	}
+
 	return &msg
 }
 
