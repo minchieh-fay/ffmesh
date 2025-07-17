@@ -32,8 +32,7 @@ func quic_send_ping_msg(stream quic.SendStream, remote_node_id string) {
 	if stream == nil {
 		return
 	}
-	msgping := NewQuicMessage(MSG_TYPE_PING, PingMessage{})
-	msgping.NodeId = remote_node_id
+	msgping := NewQuicMessage(MSG_TYPE_PING, remote_node_id, PingMessage{})
 	_, err := stream.Write(msgping.ToBuffer())
 	if err != nil {
 		fmt.Printf("⚠️  发送ping消息失败: %v\n", err)

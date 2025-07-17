@@ -62,19 +62,12 @@ func tcp_proxy_handle(conn net.Conn, target_node_id string, target_address strin
 		return
 	}
 
-	// 发送syn
-	msgsyn := NewQuicMessage(MSG_TYPE_SYN_DATA, SynDataMessage{NodeID: fm.config.NodeID, TargetID: target_node_id, TargetTcpAddr: target_address})
-	msgsyn.NodeId = proxynodeid
-	stream.Write(msgsyn.ToBuffer())
-
-	// 接收synack
-	msgack := QuicMessageFromStream(stream)
-	if msgack == nil || msgack.Type != MSG_TYPE_SYN_ACK_DATA {
-		fmt.Printf("接收synack失败\n")
+	// 数据通道握手
+	ok := send_syn_data(proxynodeid, stream, target_node_id, target_address)
+	if !ok {
 		conn.Close()
 		return
 	}
-
 	// 进行io.copy
 	ch := make(chan bool)
 	go func() {

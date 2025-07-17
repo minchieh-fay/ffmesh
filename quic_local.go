@@ -27,6 +27,7 @@ func quic_local_main() {
 		conn, err := listener.Accept(context.Background())
 		if err != nil {
 			fmt.Printf("⚠️  接受连接失败: %v\n", err)
+			time.Sleep(1 * time.Second)
 			continue
 		}
 		go handleQuicConnection(conn)
@@ -34,6 +35,9 @@ func quic_local_main() {
 }
 
 func handleQuicConnection(conn quic.Connection) {
+	if conn == nil {
+		return
+	}
 	for {
 		stream, err := conn.AcceptStream(context.Background())
 		errorcount := 0
@@ -43,6 +47,7 @@ func handleQuicConnection(conn quic.Connection) {
 			if errorcount > 5 {
 				fmt.Printf("⚠️  接受流失败次数过多，退出\n")
 				// 删除这个连接
+				conn.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "accept stream error")
 				delete_quic_client(conn)
 				return
 			}
@@ -54,21 +59,6 @@ func handleQuicConnection(conn quic.Connection) {
 }
 
 func handleQuicStream(conn quic.Connection, stream quic.Stream) {
-	remote_node_id := ""
-	go func() {
-		time.Sleep(time.Second * 3)
-		if remote_node_id != "" {
-			return
-		}
-		fmt.Printf("⚠️  握手超时\n")
-		if stream != nil {
-			stream.Close()
-		}
-		if conn != nil {
-			conn.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "timeout")
-		}
-		delete_quic_client(conn)
-	}()
 	msgsyn := QuicMessageFromStream(stream)
 	fmt.Printf("收到消息: %v\n", msgsyn)
 	if msgsyn == nil {
@@ -101,8 +91,7 @@ func handleQuicStream_msg(msgsyn *QuicMessage, conn quic.Connection, stream quic
 	delete_quic_client_when_conn_change(remote_node_id, conn)
 
 	// 回复ack
-	msgsynack := NewQuicMessage(MSG_TYPE_SYN_ACK_MSG, SynAckMsgMessage{})
-	msgsynack.NodeId = remote_node_id
+	msgsynack := NewQuicMessage(MSG_TYPE_SYN_ACK_MSG, remote_node_id, SynAckMsgMessage{})
 	stream.Write(msgsynack.ToBuffer())
 
 	// 保存新stream信息
@@ -125,8 +114,7 @@ func handleQuicStream_msg(msgsyn *QuicMessage, conn quic.Connection, stream quic
 			}
 			if msg.Type == MSG_TYPE_PING {
 				// 创建一个pong消息
-				msgpong := NewQuicMessage(MSG_TYPE_PONG, PongMessage{})
-				msgpong.NodeId = remote_node_id
+				msgpong := NewQuicMessage(MSG_TYPE_PONG, remote_node_id, PongMessage{})
 				stream.Write(msgpong.ToBuffer())
 			} else {
 				fmt.Printf("⚠️  消息通道收到未知消息: %v\n", msg)
@@ -147,12 +135,8 @@ func handleQuicStream_data(msgsyn *QuicMessage, conn quic.Connection, stream qui
 		handleQuicStream_data_target_self(remote_node_id, stream, target_tcp_addr)
 		return
 	}
-	client, ok := fm.quic_client[target_id]
-	if !ok {
-		fmt.Printf("⚠️  数据通道：目标节点不存在: %s\n", target_id)
-		return
-	}
-	handleQuicStream_data_target_other(stream, client, target_id, target_tcp_addr)
+	// 转发
+	handleQuicStream_data_target_other(remote_node_id, stream, target_id, target_tcp_addr)
 }
 
 func handleQuicStream_data_target_self(remote_node_id string, stream quic.Stream, tcptarget string) {
@@ -165,8 +149,7 @@ func handleQuicStream_data_target_self(remote_node_id string, stream quic.Stream
 	defer tcpconn.Close()
 
 	// 回复ack
-	msgsynack := NewQuicMessage(MSG_TYPE_SYN_ACK_DATA, SynAckMsgMessage{})
-	msgsynack.NodeId = remote_node_id
+	msgsynack := NewQuicMessage(MSG_TYPE_SYN_ACK_DATA, remote_node_id, SynAckMsgMessage{})
 	stream.Write(msgsynack.ToBuffer())
 
 	ch := make(chan struct{}, 1)
@@ -181,12 +164,24 @@ func handleQuicStream_data_target_self(remote_node_id string, stream quic.Stream
 	<-ch
 }
 
-func handleQuicStream_data_target_other(stream quic.Stream, client *quic_client, target_id string, target_tcp_addr string) {
+func handleQuicStream_data_target_other(src_node_id string, srcstream quic.Stream, target_id string, target_tcp_addr string) {
+	defer srcstream.Close()
+	// 查找我有木有目标节点信息，决定我是否可以帮源请求转发
+	dstclient, ok := fm.quic_client[target_id]
+	if !ok {
+		fmt.Printf("⚠️  数据通道：目标节点不存在: %s\n", target_id)
+		return
+	}
+
 	// 先和client握手 数据通道，如果通了，再答复stream ack
-	defer stream.Close()
 
 	// 创建steram
-	dststream, err := client.conn.OpenStreamSync(context.Background())
+	if dstclient == nil || dstclient.conn == nil {
+		fmt.Printf("⚠️  数据通道：目标节点连接不存在: %s\n", target_id)
+		return
+	}
+	// 创建dststream
+	dststream, err := dstclient.conn.OpenStreamSync(context.Background())
 	if err != nil {
 		fmt.Printf("⚠️  创建数据通道失败: %v\n", err)
 		return
@@ -194,16 +189,15 @@ func handleQuicStream_data_target_other(stream quic.Stream, client *quic_client,
 	defer dststream.Close()
 
 	// 发送syn消息
-	msgsyn := NewQuicMessage(MSG_TYPE_SYN_DATA, SynDataMessage{
+	msgsyn := NewQuicMessage(MSG_TYPE_SYN_DATA, target_id, SynDataMessage{
 		NodeID:        fm.config.NodeID,
 		TargetID:      target_id,
 		TargetTcpAddr: target_tcp_addr,
 	})
-	msgsyn.NodeId = target_id
-	stream.Write(msgsyn.ToBuffer())
+	dststream.Write(msgsyn.ToBuffer())
 
-	// 等待ack
-	msgsynack := QuicMessageFromStream(stream)
+	// 等待dst的ack
+	msgsynack := QuicMessageFromStream(dststream)
 	if msgsynack == nil {
 		fmt.Printf("⚠️  数据通道：收到空ack消息\n")
 		return
@@ -213,14 +207,18 @@ func handleQuicStream_data_target_other(stream quic.Stream, client *quic_client,
 		return
 	}
 
+	// dst数据通道通了，向src回复ack
+	msgsynack_src := NewQuicMessage(MSG_TYPE_SYN_ACK_DATA, src_node_id, SynAckMsgMessage{})
+	srcstream.Write(msgsynack_src.ToBuffer())
+
 	// 进行数据拷贝
 	ch := make(chan struct{}, 1)
 	go func() {
-		io.Copy(dststream, stream)
+		io.Copy(dststream, srcstream)
 		ch <- struct{}{}
 	}()
 	go func() {
-		io.Copy(stream, dststream)
+		io.Copy(srcstream, dststream)
 		ch <- struct{}{}
 	}()
 	<-ch

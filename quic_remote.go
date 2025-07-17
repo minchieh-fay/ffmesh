@@ -13,7 +13,7 @@ func quic_connect_upstream(node_id string, address string) {
 	for {
 		quic_connect_upstream_do(node_id, address)
 		fmt.Printf("连接上级节点失败，1秒后重试: %s\n", address)
-		time.Sleep(time.Second * 1)
+		time.Sleep(time.Second * 3)
 	}
 }
 
@@ -32,17 +32,13 @@ func quic_connect_upstream_do(remote_node_id string, address string) {
 		return
 	}
 	quic_send_syn_msg(stream, remote_node_id)
-	msgack := QuicMessageFromStream(stream)
-	if msgack == nil {
-		fmt.Printf("⚠️  消息通道: 收到空消息,没有收到synack\n")
+
+	if verify_syn_ack(stream, MSG_TYPE_SYN_ACK_MSG) == false {
+		fmt.Printf("⚠️  消息通道: 没有收到synack\n")
 		os.Exit(1)
 		return
 	}
-	if msgack.Type != MSG_TYPE_SYN_ACK_MSG {
-		fmt.Printf("⚠️  消息通道: 收到非synack消息\n")
-		os.Exit(1)
-		return
-	}
+
 	save_quic_stream(remote_node_id, conn, stream, LINK_TYPE_MSG)
 
 	// 处理数据通道
@@ -58,8 +54,7 @@ func quic_connect_upstream_do(remote_node_id string, address string) {
 		switch msg.Type {
 		case MSG_TYPE_PING:
 			// 创建一个pong消息
-			msgpong := NewQuicMessage(MSG_TYPE_PONG, PongMessage{})
-			msgpong.NodeId = remote_node_id
+			msgpong := NewQuicMessage(MSG_TYPE_PONG, remote_node_id, PongMessage{})
 			stream.Write(msgpong.ToBuffer())
 		default:
 			fmt.Printf("⚠️  消息通道收到未知消息: %v\n", msg)

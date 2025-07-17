@@ -30,10 +30,11 @@ type QuicMessage struct {
 	Data   interface{} `json:"data"`    // 消息数据
 }
 
-func NewQuicMessage(typ int, data interface{}) *QuicMessage {
+func NewQuicMessage(typ int, remote_node_id string, data interface{}) *QuicMessage {
 	return &QuicMessage{
-		Type: typ,
-		Data: data,
+		Type:   typ,
+		NodeId: remote_node_id,
+		Data:   data,
 	}
 }
 
