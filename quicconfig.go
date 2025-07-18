@@ -71,28 +71,28 @@ func generateTLSConfig() *tls.Config {
 func GetQuicServerConfig() *quic.Config {
 	return &quic.Config{
 		// 握手超时时间
-		HandshakeIdleTimeout: 30 * time.Second,
+		HandshakeIdleTimeout: 10 * time.Second,
 
 		// 连接空闲超时时间
-		MaxIdleTimeout: 5 * time.Minute,
+		MaxIdleTimeout: 30 * time.Second,
 
 		// 最大传入流数量
-		MaxIncomingStreams: 1000,
+		MaxIncomingStreams: 100,
 
 		// 最大传入单向流数量
-		MaxIncomingUniStreams: 1000,
+		MaxIncomingUniStreams: 100,
 
-		// 启用数据报
-		EnableDatagrams: true,
+		// 禁用数据报
+		EnableDatagrams: false,
 
-		// 允许连接迁移
-		DisablePathMTUDiscovery: false,
+		// 禁用路径MTU发现
+		DisablePathMTUDiscovery: true,
 
 		// 保持连接活跃
-		KeepAlivePeriod: 30 * time.Second,
+		KeepAlivePeriod: 10 * time.Second,
 
-		// 允许0-RTT
-		Allow0RTT: true,
+		// 禁用0-RTT
+		Allow0RTT: false,
 	}
 }
 
@@ -100,25 +100,25 @@ func GetQuicServerConfig() *quic.Config {
 func GetQuicClientConfig() *quic.Config {
 	return &quic.Config{
 		// 握手超时时间
-		HandshakeIdleTimeout: 30 * time.Second,
+		HandshakeIdleTimeout: 10 * time.Second,
 
 		// 连接空闲超时时间
-		MaxIdleTimeout: 5 * time.Minute,
+		MaxIdleTimeout: 30 * time.Second,
 
 		// 最大传入流数量
-		MaxIncomingStreams: 5,
+		MaxIncomingStreams: 10,
 
 		// 最大传入单向流数量
-		MaxIncomingUniStreams: 5,
+		MaxIncomingUniStreams: 10,
 
-		// 允许连接迁移
-		DisablePathMTUDiscovery: false,
+		// 禁用路径MTU发现
+		DisablePathMTUDiscovery: true,
 
 		// 保持连接活跃
-		KeepAlivePeriod: 30 * time.Second,
+		KeepAlivePeriod: 10 * time.Second,
 
-		// 允许0-RTT
-		Allow0RTT: true,
+		// 禁用0-RTT
+		Allow0RTT: false,
 	}
 }
 

@@ -46,3 +46,5 @@ Thumbs.db
 
 # 忽略dist目录下所有文件
 dist/
+
+do.sh
