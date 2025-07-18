@@ -123,3 +123,15 @@ func send_syn_data(remote_node_id string, stream quic.Stream, target_node_id str
 	ok = true
 	return true
 }
+
+func getupnodestream(notid1, notid2 string) (quic.Stream, string) {
+	for cid, client := range fm.quic_client {
+		if client.is_up && cid != notid1 && cid != notid2 {
+			// 向client中的消息通道发送findNodeMsg
+			if len(client.streaminfo) > 0 && client.streaminfo[0].stream != nil {
+				return client.streaminfo[0].stream, cid
+			}
+		}
+	}
+	return nil, ""
+}

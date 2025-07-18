@@ -68,6 +68,10 @@ func quic_connect_upstream_do(remote_node_id string, address string) {
 			stream.Write(msgpong.ToBuffer())
 		case MSG_TYPE_PONG:
 			fmt.Printf("🔔 收到来自%s的pong消息\n", remote_node_id)
+		case MSG_TYPE_FIND_NODE:
+			go handleQuicStream_find_node(msg, conn, stream)
+		case MSG_TYPE_FIND_NODE_ACK:
+			go handleQuicStream_find_node_ack(msg, conn, stream)
 		default:
 			fmt.Printf("⚠️  消息通道收到未知消息: %v\n", msg)
 		}

@@ -12,29 +12,33 @@ import (
 
 // 消息类型常量
 const (
-	MSG_TYPE_SYN_MSG      = 0  // 握手-并告知这是一条控制信令通道
-	MSG_TYPE_SYN_ACK_MSG  = 1  // 握手回复-并告知这是一条控制信令通道
-	MSG_TYPE_SYN_DATA     = 2  // 握手-并告知这是一条数据通道
-	MSG_TYPE_SYN_ACK_DATA = 3  // 握手回复-并告知这是一条数据通道
-	MSG_TYPE_PING         = 4  // ping消息
-	MSG_TYPE_PONG         = 5  // pong回复
-	MSG_TYPE_PROXY_DATA   = 6  // 代理数据
-	MSG_TYPE_NODE_INFO    = 5  // 节点信息
-	MSG_TYPE_ROUTE_UPDATE = 5  // 路由更新
-	MSG_TYPE_ERROR        = 99 // 错误消息
+	MSG_TYPE_SYN_MSG       = 0  // 握手-并告知这是一条控制信令通道
+	MSG_TYPE_SYN_ACK_MSG   = 1  // 握手回复-并告知这是一条控制信令通道
+	MSG_TYPE_SYN_DATA      = 2  // 握手-并告知这是一条数据通道
+	MSG_TYPE_SYN_ACK_DATA  = 3  // 握手回复-并告知这是一条数据通道
+	MSG_TYPE_PING          = 4  // ping消息
+	MSG_TYPE_PONG          = 5  // pong回复
+	MSG_TYPE_PROXY_DATA    = 6  // 代理数据
+	MSG_TYPE_NODE_INFO     = 5  // 节点信息
+	MSG_TYPE_ROUTE_UPDATE  = 5  // 路由更新
+	MSG_TYPE_FIND_NODE     = 6  // 查找节点
+	MSG_TYPE_FIND_NODE_ACK = 7  // 查找节点回复
+	MSG_TYPE_ERROR         = 99 // 错误消息
 )
 
 // 基础消息结构
 type QuicMessage struct {
 	Type   int         `json:"type"`    // 消息类型
-	NodeId string      `json:"node_id"` // 接收端节点ID
+	ToID   string      `json:"to_id"`   // 接收端节点ID
+	FromID string      `json:"from_id"` // 发送方节点ID
 	Data   interface{} `json:"data"`    // 消息数据
 }
 
 func NewQuicMessage(typ int, remote_node_id string, data interface{}) *QuicMessage {
 	return &QuicMessage{
 		Type:   typ,
-		NodeId: remote_node_id,
+		FromID: fm.config.NodeID,
+		ToID:   remote_node_id,
 		Data:   data,
 	}
 }
@@ -70,8 +74,8 @@ func QuicMessageFromStream(stream quic.Stream) *QuicMessage {
 		fmt.Printf("解析消息失败: %v\n", err)
 		return nil
 	}
-	if msg.NodeId != fm.config.NodeID {
-		fmt.Printf("节点ID不匹配，丢弃消息: %s\n", msg.NodeId)
+	if msg.ToID != fm.config.NodeID {
+		fmt.Printf("节点ID不匹配，丢弃消息: %s\n", msg.ToID)
 		return nil
 	}
 
@@ -107,6 +111,16 @@ func QuicMessageFromStream(stream quic.Stream) *QuicMessage {
 		dataBytes, _ := json.Marshal(msg.Data)
 		json.Unmarshal(dataBytes, &pongMsg)
 		msg.Data = &pongMsg
+	case MSG_TYPE_FIND_NODE:
+		var findNodeMsg FindNodeMessage
+		dataBytes, _ := json.Marshal(msg.Data)
+		json.Unmarshal(dataBytes, &findNodeMsg)
+		msg.Data = &findNodeMsg
+	case MSG_TYPE_FIND_NODE_ACK:
+		var findNodeAckMsg FindNodeAckMessage
+		dataBytes, _ := json.Marshal(msg.Data)
+		json.Unmarshal(dataBytes, &findNodeAckMsg)
+		msg.Data = &findNodeAckMsg
 	}
 
 	return &msg
@@ -151,6 +165,19 @@ type PingMessage struct {
 
 // Pong回复结构
 type PongMessage struct {
+}
+
+// Ping消息结构
+type FindNodeMessage struct {
+	NodeID   string `json:"node_id"`   // 发起查找的节点ID
+	TargetID string `json:"target_id"` // 目标节点ID
+}
+
+// Pong回复结构
+type FindNodeAckMessage struct {
+	NodeID   string `json:"node_id"`   // 发起查找的节点ID
+	TargetID string `json:"target_id"` // 目标节点ID
+	IsExist  bool   `json:"is_exist"`  // 是否存在
 }
 
 // 代理数据结构

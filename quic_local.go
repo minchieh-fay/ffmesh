@@ -141,6 +141,10 @@ func handleQuicStream_msg(msgsyn *QuicMessage, conn quic.Connection, stream quic
 			stream.Write(msgpong.ToBuffer())
 		case MSG_TYPE_PONG:
 			fmt.Printf("🔔 收到来自%s的pong消息\n", remote_node_id)
+		case MSG_TYPE_FIND_NODE:
+			go handleQuicStream_find_node(msg, conn, stream)
+		case MSG_TYPE_FIND_NODE_ACK:
+			go handleQuicStream_find_node_ack(msg, conn, stream)
 		default:
 			fmt.Printf("⚠️  消息通道收到未知消息: %v\n", msg)
 		}
@@ -260,4 +264,77 @@ func handleQuicStream_data_target_other(src_node_id string, srcstream quic.Strea
 	<-ch
 
 	fmt.Printf("🔌 中继数据转发结束: %s -> %s -> %s\n", src_node_id, target_id, target_tcp_addr)
+}
+
+func handleQuicStream_find_node(msg *QuicMessage, conn quic.Connection, stream quic.Stream) {
+	findNodeMsg := msg.Data.(*FindNodeMessage)
+
+	// 先看看自己有没有目标节点
+	_, ok := fm.quic_client[findNodeMsg.TargetID]
+	if ok {
+		// 回复存在
+		findNodeAckMsg := NewQuicMessage(MSG_TYPE_FIND_NODE_ACK, msg.FromID, FindNodeAckMessage{
+			NodeID:   findNodeMsg.NodeID,
+			TargetID: findNodeMsg.TargetID,
+			IsExist:  true,
+		})
+		stream.Write(findNodeAckMsg.ToBuffer())
+		return
+	}
+
+	// 看看有没有其他isup的节点
+	upstream, upid := getupnodestream(msg.FromID, "")
+	if upstream != nil {
+		findNodeMsgxx := NewQuicMessage(MSG_TYPE_FIND_NODE, upid, FindNodeMessage{
+			NodeID:   findNodeMsg.NodeID,
+			TargetID: findNodeMsg.TargetID,
+		})
+		upstream.Write(findNodeMsgxx.ToBuffer())
+		return
+	}
+
+	// 回复不存在
+	findNodeAckMsg := NewQuicMessage(MSG_TYPE_FIND_NODE_ACK, msg.FromID, FindNodeAckMessage{
+		NodeID:   findNodeMsg.NodeID,
+		TargetID: findNodeMsg.TargetID,
+		IsExist:  false,
+	})
+	stream.Write(findNodeAckMsg.ToBuffer())
+}
+
+func handleQuicStream_find_node_ack(msg *QuicMessage, conn quic.Connection, stream quic.Stream) {
+	findNodeAckMsg := msg.Data.(*FindNodeAckMessage)
+	fmt.Printf("🔍 收到来自%s的find node ack消息: %v\n", findNodeAckMsg.NodeID, findNodeAckMsg)
+	if findNodeAckMsg.NodeID == fm.config.NodeID {
+		fmt.Println("find node ack message from myself,how can this happen?")
+		return
+	}
+
+	// 先看看自己有没有目标节点
+	client, ok := fm.quic_client[findNodeAckMsg.NodeID]
+	if ok {
+		// 回复
+		findNodeAckMsg := NewQuicMessage(MSG_TYPE_FIND_NODE_ACK, findNodeAckMsg.NodeID, FindNodeAckMessage{
+			NodeID:   findNodeAckMsg.NodeID,
+			TargetID: findNodeAckMsg.TargetID,
+			IsExist:  findNodeAckMsg.IsExist,
+		})
+		if len(client.streaminfo) > 0 && client.streaminfo[0].stream != nil {
+			client.streaminfo[0].stream.Write(findNodeAckMsg.ToBuffer())
+			return
+		}
+		return
+	}
+
+	// 看看有没有其他isup的节点
+	upstream, upid := getupnodestream(msg.FromID, "")
+	if upstream != nil {
+		findNodeAckMsgxx := NewQuicMessage(MSG_TYPE_FIND_NODE_ACK, upid, FindNodeAckMessage{
+			NodeID:   findNodeAckMsg.NodeID,
+			TargetID: findNodeAckMsg.TargetID,
+			IsExist:  findNodeAckMsg.IsExist,
+		})
+		upstream.Write(findNodeAckMsgxx.ToBuffer())
+		return
+	}
 }
