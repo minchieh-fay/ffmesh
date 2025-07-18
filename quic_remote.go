@@ -43,12 +43,13 @@ func quic_connect_upstream_do(remote_node_id string, address string) {
 	}
 	quic_send_syn_msg(stream, remote_node_id)
 
-	if !verify_syn_ack(stream, MSG_TYPE_SYN_ACK_MSG) {
-		fmt.Printf("⚠️  消息通道: 没有收到synack\n")
+	synack := get_syn_ack(stream, MSG_TYPE_SYN_ACK_MSG)
+	if synack == nil || !synack.Result {
+		fmt.Printf("⚠️  消息通道: 没有收到synack, 原因: %s\n", synack.Reason)
 		return
 	}
 
-	save_quic_stream(remote_node_id, conn, stream, LINK_TYPE_MSG)
+	save_quic_stream(remote_node_id, conn, stream, synack.IsUp, synack.Version)
 
 	// 处理数据通道
 	go handleQuicConnection_remote(conn)
@@ -65,6 +66,8 @@ func quic_connect_upstream_do(remote_node_id string, address string) {
 			// 创建一个pong消息
 			msgpong := NewQuicMessage(MSG_TYPE_PONG, remote_node_id, PongMessage{})
 			stream.Write(msgpong.ToBuffer())
+		case MSG_TYPE_PONG:
+			fmt.Printf("🔔 收到来自%s的pong消息\n", remote_node_id)
 		default:
 			fmt.Printf("⚠️  消息通道收到未知消息: %v\n", msg)
 		}

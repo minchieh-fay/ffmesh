@@ -15,6 +15,8 @@ type quic_client struct {
 	node_id    string
 	conn       quic.Connection
 	streaminfo []streaminfo
+	is_up      bool
+	version    int
 }
 
 // FFMesh主结构体

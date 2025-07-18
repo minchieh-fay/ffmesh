@@ -48,6 +48,7 @@ func handleQuicConnection(conn quic.Connection) {
 	if conn == nil {
 		return
 	}
+	defer conn.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "connection closed")
 
 	remoteAddr := conn.RemoteAddr().String()
 	errorcount := 0
@@ -60,7 +61,6 @@ func handleQuicConnection(conn quic.Connection) {
 			if errorcount > 5 {
 				fmt.Printf("⚠️  接受流失败次数过多，关闭连接 [%s]\n", remoteAddr)
 				// 删除这个连接
-				conn.CloseWithError(quic.ApplicationErrorCode(quic.NoError), "accept stream error")
 				delete_quic_client(conn)
 				return
 			}
@@ -90,9 +90,10 @@ func handleQuicStream(conn quic.Connection, stream quic.Stream) {
 		return
 	}
 
-	if msgsyn.Type == MSG_TYPE_SYN_MSG {
+	switch msgsyn.Type {
+	case MSG_TYPE_SYN_MSG:
 		go handleQuicStream_msg(msgsyn, conn, stream)
-	} else if msgsyn.Type == MSG_TYPE_SYN_DATA {
+	case MSG_TYPE_SYN_DATA:
 		go handleQuicStream_data(msgsyn, conn, stream)
 	}
 }
@@ -107,11 +108,16 @@ func handleQuicStream_msg(msgsyn *QuicMessage, conn quic.Connection, stream quic
 	delete_quic_client_when_conn_change(remote_node_id, conn)
 
 	// 回复ack
-	msgsynack := NewQuicMessage(MSG_TYPE_SYN_ACK_MSG, remote_node_id, SynAckMsgMessage{})
+	msgsynack := NewQuicMessage(MSG_TYPE_SYN_ACK_MSG, remote_node_id, SynAckMsgMessage{
+		Result:  true,
+		Reason:  "",
+		Version: synmsg.Version,
+		IsUp:    fm.config.IsQuicEnabled(),
+	})
 	stream.Write(msgsynack.ToBuffer())
 
 	// 保存新stream信息
-	save_quic_stream(remote_node_id, conn, stream, LINK_TYPE_MSG)
+	save_quic_stream(remote_node_id, conn, stream, synmsg.IsUp, synmsg.Version)
 
 	defer func() {
 		// msg通道关闭  等价于 conn关闭
@@ -193,11 +199,23 @@ func handleQuicStream_data_target_self(remote_node_id string, stream quic.Stream
 func handleQuicStream_data_target_other(src_node_id string, srcstream quic.Stream, target_id string, target_tcp_addr string) {
 	defer srcstream.Close()
 
-	// 查找我有木有目标节点信息，决定我是否可以帮源请求转发
+	// 优先查找我有木有目标节点信息，决定我是否可以帮源请求转发
 	dstclient, ok := fm.quic_client[target_id]
-	if !ok {
+	if !ok { // 如果我自己没有，那么看看有没有其他isup的节点
 		fmt.Printf("⚠️  数据通道：目标节点不存在: %s\n", target_id)
-		return
+
+		// 如果自己没有，那么查看有没有isup=true的节点，决定我是否可以帮源请求转发
+		for cid, client := range fm.quic_client {
+			// 是上级节点 & 不是请求来源节点
+			if client.is_up && cid != src_node_id {
+				dstclient = client
+				break
+			}
+		}
+		if dstclient == nil {
+			fmt.Printf("⚠️  数据通道：没有找到可以帮源请求转发的节点: %s\n", target_id)
+			return
+		}
 	}
 
 	// 先和client握手 数据通道，如果通了，再答复stream ack
@@ -217,21 +235,9 @@ func handleQuicStream_data_target_other(src_node_id string, srcstream quic.Strea
 	defer dststream.Close()
 
 	// 发送syn消息
-	msgsyn := NewQuicMessage(MSG_TYPE_SYN_DATA, target_id, SynDataMessage{
-		NodeID:        fm.config.NodeID,
-		TargetID:      target_id,
-		TargetTcpAddr: target_tcp_addr,
-	})
-	dststream.Write(msgsyn.ToBuffer())
-
-	// 等待dst的ack
-	msgsynack := QuicMessageFromStream(dststream)
-	if msgsynack == nil {
-		fmt.Printf("⚠️  数据通道：收到空ack消息\n")
-		return
-	}
-	if msgsynack.Type != MSG_TYPE_SYN_ACK_DATA {
-		fmt.Printf("⚠️  数据通道：收到非ack消息: %v\n", msgsynack)
+	ok = send_syn_data(target_id, dststream, target_id, target_tcp_addr)
+	if !ok {
+		fmt.Printf("⚠️  数据通道：发送syn消息失败: %s\n", target_id)
 		return
 	}
 

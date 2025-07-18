@@ -117,12 +117,22 @@ const (
 	LINK_TYPE_DATA = 1 // 数据通道
 )
 
+const (
+	VERSION = 1
+)
+
 // 握手-并告知这是一条控制信令通道
 type SynMsgMessage struct {
-	NodeID string `json:"node_id"` // 发送方节点ID
+	Version int    `json:"version"` // 版本号
+	NodeID  string `json:"node_id"` // 发送方节点ID
+	IsUp    bool   `json:"is_up"`   // 是否是上级节点
 }
 
 type SynAckMsgMessage struct {
+	IsUp    bool   `json:"is_up"`   // 是否是上级节点
+	Result  bool   `json:"result"`  // 是否成功
+	Reason  string `json:"reason"`  // 原因
+	Version int    `json:"version"` // 版本号
 }
 
 // 握手-并告知这是一条数据通道
